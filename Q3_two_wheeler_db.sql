@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Q3 : Integrated Two-Wheeler Manufacturing Database Management System
--- Set-B Case Study | MySQL 8.x  (PostgreSQL-compatible with minor changes
--- noted in comments: AUTO_INCREMENT -> GENERATED ALWAYS AS IDENTITY)
+-- Set-B Case Study | MySQL 8.0.16+ (CHECK constraints must be enforced)
+-- PostgreSQL requires a separate port of identity columns, ENUMs and triggers.
 -- Run order: whole file top-to-bottom:  mysql -u root -p < Q3_two_wheeler_db.sql
 -- ============================================================================
 
@@ -20,7 +20,7 @@ CREATE TABLE plant (
 );
 
 CREATE TABLE vehicle_model (
-    model_code         VARCHAR(10) PRIMARY KEY,          -- e.g. 'XSP1660'
+    model_code         VARCHAR(10) PRIMARY KEY,          -- e.g. 'XSP160'
     model_name         VARCHAR(60) NOT NULL,             -- e.g. 'X-Sport 160'
     vehicle_type       ENUM('Motorcycle','Scooter','Electric Scooter','Electric Motorcycle') NOT NULL,
     engine_capacity_cc INT NULL,                          -- NULL for electric
@@ -28,8 +28,12 @@ CREATE TABLE vehicle_model (
     transmission       VARCHAR(20) NOT NULL,              -- '5-Speed', 'CVT', ...
     seating_capacity   INT NOT NULL CHECK (seating_capacity BETWEEN 1 AND 3),
     ex_showroom_price  DECIMAL(12,2) NOT NULL CHECK (ex_showroom_price > 0),
-    CHECK ( (fuel_type = 'Petrol' AND engine_capacity_cc IS NOT NULL)
-         OR (fuel_type = 'Electric' AND engine_capacity_cc IS NULL) )
+    CHECK (
+        (vehicle_type IN ('Motorcycle','Scooter') AND fuel_type = 'Petrol'
+            AND engine_capacity_cc IS NOT NULL AND engine_capacity_cc > 0)
+        OR (vehicle_type IN ('Electric Scooter','Electric Motorcycle')
+            AND fuel_type = 'Electric' AND engine_capacity_cc IS NULL)
+    )
 );
 
 CREATE TABLE component (
@@ -96,18 +100,22 @@ CREATE TABLE supply_order (                            -- supply history -> perf
     supplier_id   INT NOT NULL,
     component_id  INT NOT NULL,
     qty_ordered   INT NOT NULL CHECK (qty_ordered > 0),
-    unit_price    DECIMAL(10,2) NOT NULL,
+    unit_price    DECIMAL(10,2) NOT NULL CHECK (unit_price >= 0),
     order_date    DATE NOT NULL,
+    agreed_lead_time_days INT NOT NULL CHECK (agreed_lead_time_days >= 0),
     delivery_date DATE NULL,                             -- NULL => not delivered yet
+    CHECK (delivery_date IS NULL OR delivery_date >= order_date),
     FOREIGN KEY (supplier_id)  REFERENCES supplier (supplier_id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
     FOREIGN KEY (component_id) REFERENCES component (component_id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    FOREIGN KEY (supplier_id, component_id) REFERENCES supplies (supplier_id, component_id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- ----------------------------------------------------------------------------
--- 3. BATCH : weak entity (SUPPLIER, COMPONENT) -> enables defect tracing
---    batch_no is globally unique (supplier-assigned); the batch belongs to
+-- 3. BATCH : strong entity with its own key -> enables defect tracing
+--    batch_no is a globally unique internal lot code; the batch belongs to
 --    one (supplier, component) pair, enforced via FK to SUPPLIES.
 -- ----------------------------------------------------------------------------
 CREATE TABLE batch (
@@ -116,6 +124,7 @@ CREATE TABLE batch (
     component_id INT NOT NULL,
     batch_qty    INT NOT NULL CHECK (batch_qty > 0),
     batch_date   DATE NOT NULL,
+    UNIQUE KEY uq_batch_component (batch_no, component_id),
     FOREIGN KEY (supplier_id, component_id) REFERENCES supplies (supplier_id, component_id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 );
@@ -147,33 +156,75 @@ CREATE TABLE vehicle (
     dealer_id    INT NULL,                               -- set when shipped to dealer
     customer_id  INT NULL,                               -- set when sold
     sale_date    DATE NULL,
-    sale_price   DECIMAL(12,2) NULL,
+    sale_price   DECIMAL(12,2) NULL CHECK (sale_price > 0),
     FOREIGN KEY (model_code) REFERENCES vehicle_model (model_code)
         ON DELETE RESTRICT ON UPDATE CASCADE,
     FOREIGN KEY (plant_id)   REFERENCES plant (plant_id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
     FOREIGN KEY (dealer_id)  REFERENCES dealer (dealer_id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
+        ON DELETE RESTRICT ON UPDATE CASCADE,
     FOREIGN KEY (customer_id) REFERENCES customer (customer_id)
-        ON DELETE SET NULL ON UPDATE CASCADE,
-    CHECK (status <> 'Sold' OR (customer_id IS NOT NULL AND sale_date IS NOT NULL))
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CHECK (
+        (status = 'Sold'
+            AND sale_date IS NOT NULL AND sale_price IS NOT NULL
+            AND sale_date >= mfg_date)
+        OR (status <> 'Sold'
+            AND sale_date IS NULL AND sale_price IS NULL)
+    )
 );
+
+-- dealer_id and customer_id cannot appear in that CHECK: MySQL forbids a CHECK
+-- on a column that also has a foreign-key action. The trigger enforces them.
+DELIMITER //
+CREATE TRIGGER trg_vehicle_bi BEFORE INSERT ON vehicle
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'Sold' AND (NEW.dealer_id IS NULL OR NEW.customer_id IS NULL) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A sold vehicle needs a dealer and a customer';
+    END IF;
+    IF NEW.status = 'At-Dealer' AND (NEW.dealer_id IS NULL OR NEW.customer_id IS NOT NULL) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A vehicle at a dealer needs a dealer and no customer';
+    END IF;
+    IF NEW.status IN ('In-Production', 'At-Plant')
+       AND (NEW.dealer_id IS NOT NULL OR NEW.customer_id IS NOT NULL) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A vehicle at the plant cannot have a dealer or a customer';
+    END IF;
+END//
+CREATE TRIGGER trg_vehicle_bu BEFORE UPDATE ON vehicle
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'Sold' AND (NEW.dealer_id IS NULL OR NEW.customer_id IS NULL) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A sold vehicle needs a dealer and a customer';
+    END IF;
+    IF NEW.status = 'At-Dealer' AND (NEW.dealer_id IS NULL OR NEW.customer_id IS NOT NULL) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A vehicle at a dealer needs a dealer and no customer';
+    END IF;
+    IF NEW.status IN ('In-Production', 'At-Plant')
+       AND (NEW.dealer_id IS NOT NULL OR NEW.customer_id IS NOT NULL) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'A vehicle at the plant cannot have a dealer or a customer';
+    END IF;
+END//
+DELIMITER ;
 
 -- ----------------------------------------------------------------------------
 -- 6. As-built fitment : VEHICLE -- M:N -- COMPONENT (via batch)
 -- ----------------------------------------------------------------------------
 CREATE TABLE vehicle_component (
+    fitment_id   INT AUTO_INCREMENT PRIMARY KEY,
     vin          VARCHAR(17) NOT NULL,
     component_id INT NOT NULL,
     batch_no     VARCHAR(20) NOT NULL,
     install_date DATE NOT NULL,
     serial_no    VARCHAR(30) NULL,                       -- for critical parts
-    PRIMARY KEY (vin, component_id),
+    -- One row per physical part in the original build, including repeated tyres.
+    -- Serial numbers are unique within a component type; NULL allows unnumbered parts.
+    UNIQUE KEY uq_component_serial (component_id, serial_no),
     FOREIGN KEY (vin)          REFERENCES vehicle (vin)
         ON DELETE CASCADE ON UPDATE CASCADE,
     FOREIGN KEY (component_id) REFERENCES component (component_id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
-    FOREIGN KEY (batch_no)     REFERENCES batch (batch_no)
+    FOREIGN KEY (batch_no, component_id) REFERENCES batch (batch_no, component_id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -255,7 +306,7 @@ INSERT INTO plant (plant_name, location, annual_capacity) VALUES
 ('Bidadi EV Plant', 'Bidadi, Karnataka',    100000);
 
 INSERT INTO vehicle_model VALUES
-('XSP1660','X-Sport 160','Motorcycle',160,'Petrol','5-Speed',2,125000.00),
+('XSP160','X-Sport 160','Motorcycle',160,'Petrol','5-Speed',2,125000.00),
 ('ZMR2100','Z-Mileage 210','Motorcycle',210,'Petrol','5-Speed',2,148500.00),
 ('SCT1100','S-City 110','Scooter',110,'Petrol','CVT',2,87999.00),
 ('EVX3000','EV-X 3.0','Electric Scooter',NULL,'Electric','Hub Motor',2,112000.00),
@@ -273,7 +324,8 @@ INSERT INTO component (component_name, category, unit_cost, is_critical) VALUES
 ('Clutch Assembly','Transmission',3200.00,FALSE),
 ('Suspension Fork','Chassis',5100.00,FALSE),
 ('Controller (Motor Driver)','Electrical',8200.00,TRUE),
-('Hub Motor 3kW','Electrical',15500.00,TRUE);
+('Hub Motor 3kW','Electrical',15500.00,TRUE),
+('Engine Assembly 110cc','Engine',16000.00,TRUE);
 
 INSERT INTO supplier (supplier_name, address, supplier_type, rating) VALUES
 ('Bharat Brakes Pvt Ltd','Plot 12, Peenya, Bengaluru','OEM',4.5),
@@ -316,24 +368,28 @@ INSERT INTO supplies (supplier_id, component_id, unit_price, lead_time_days, qua
 (1,5,3600.00,10,4.6), (1,9,3100.00,12,4.4),               -- Bharat Brakes
 (2,6,1950.00,7,4.3),  (2,7,2800.00,9,4.1),                -- Sunridges Tyres
 (3,3,24500.00,21,4.9),(3,11,7900.00,18,4.7),              -- VoltCells
-(4,1,21000.00,15,4.0), (4,2,26000.00,15,3.8), (4,10,4800.00,11,3.9), -- Precision Drivetrain
+(4,1,21000.00,15,4.0), (4,2,26000.00,15,3.8), (4,10,4800.00,11,3.9), (4,13,18500.00,14,4.1), -- Precision Drivetrain
 (5,8,1500.00,6,3.4),  (5,4,4300.00,14,3.6), (5,12,14800.00,20,3.7);  -- OptiLight
 
-INSERT INTO supply_order (supplier_id, component_id, qty_ordered, unit_price, order_date, delivery_date) VALUES
-(1,5,5000,3600.00,'2026-05-02','2026-05-11'),
-(1,9,4000,3100.00,'2026-05-02','2026-05-16'),
-(2,6,8000,1950.00,'2026-04-18','2026-04-24'),
-(2,7,6000,2800.00,'2026-04-18','2026-04-29'),   -- late delivery (11 days)
-(3,3,3000,24500.00,'2026-06-01','2026-06-19'),
-(3,11,2500,7900.00,'2026-06-01','2026-06-17'),
-(4,1,4500,21000.00,'2026-05-20','2026-06-04'),
-(4,2,2000,26000.00,'2026-05-20',NULL),          -- not delivered yet
-(5,8,7000,1500.00,'2026-06-10','2026-06-15'),
-(5,4,3000,4300.00,'2026-06-10','2026-06-27');   -- late delivery
+-- Each order stores the lead time agreed when it was placed. Later changes to
+-- supplies.lead_time_days must not rewrite the performance of historical orders.
+INSERT INTO supply_order (supplier_id, component_id, qty_ordered, unit_price, order_date, agreed_lead_time_days, delivery_date) VALUES
+(1,5,5000,3600.00,'2026-05-02',10,'2026-05-11'),
+(1,9,4000,3100.00,'2026-05-02',12,'2026-05-16'),
+(2,6,8000,1950.00,'2026-04-18',7,'2026-04-24'),
+(2,7,6000,2800.00,'2026-04-18',9,'2026-04-29'),   -- late delivery (11 days)
+(3,3,3000,24500.00,'2026-06-01',21,'2026-06-19'),
+(3,11,2500,7900.00,'2026-06-01',18,'2026-06-17'),
+(4,1,4500,21000.00,'2026-05-20',15,'2026-06-04'),
+(4,2,2000,26000.00,'2026-05-20',15,NULL),          -- not delivered yet
+(4,13,900,18500.00,'2026-05-25',14,'2026-06-08'),  -- 110cc engines, on time (14 days)
+(5,8,7000,1500.00,'2026-06-10',6,'2026-06-15'),
+(5,4,3000,4300.00,'2026-06-10',14,'2026-06-27');   -- late delivery
 
 INSERT INTO batch (batch_no, supplier_id, component_id, batch_qty, batch_date) VALUES
 ('ENG160-B001',4,1,1500,'2026-06-05'),
 ('ENG210-B001',4,2,800,'2026-06-05'),
+('ENG110-B001',4,13,900,'2026-06-08'),
 ('BAT3K-A117', 3,3,1200,'2026-06-20'),
 ('BAT3K-A118', 3,3,1000,'2026-07-04'),
 ('ECU-B552',   5,4,2500,'2026-06-11'),
@@ -342,20 +398,21 @@ INSERT INTO batch (batch_no, supplier_id, component_id, batch_qty, batch_date) V
 ('RIM-A774',   2,7,5500,'2026-04-30'),
 ('CTL-M900',   3,11,2000,'2026-06-18'),
 ('HUBM-3KW14', 5,12,1500,'2026-07-01'),
-('LAMP-L331',  5,8,6000,'2026-06-16'),
-('SUS-F410',   4,10,3000,'2026-06-01');
+('LAMP-L331',  5,8,6000,'2026-06-15'),
+('SUS-F410',   4,10,3000,'2026-06-01'),
+('CLU-C441',   1,9,2000,'2026-05-18');
 
 INSERT INTO model_component (model_code, component_id, qty_per_vehicle) VALUES
-('XSP1660',1,1),('XSP1660',4,1),('XSP1660',5,1),('XSP1660',6,2),('XSP1660',7,2),('XSP1660',8,1),('XSP1660',9,1),('XSP1660',10,1),
+('XSP160',1,1),('XSP160',4,1),('XSP160',5,1),('XSP160',6,2),('XSP160',7,2),('XSP160',8,1),('XSP160',9,1),('XSP160',10,1),
 ('ZMR2100',2,1),('ZMR2100',4,1),('ZMR2100',5,1),('ZMR2100',6,2),('ZMR2100',7,2),('ZMR2100',8,1),('ZMR2100',9,1),('ZMR2100',10,1),
-('SCT1100',1,1),('SCT1100',4,1),('SCT1100',5,1),('SCT1100',6,2),('SCT1100',7,2),('SCT1100',8,1),
+('SCT1100',13,1),('SCT1100',4,1),('SCT1100',5,1),('SCT1100',6,2),('SCT1100',7,2),('SCT1100',8,1),
 ('EVX3000',3,1),('EVX3000',11,1),('EVX3000',12,1),('EVX3000',5,1),('EVX3000',6,2),('EVX3000',7,2),('EVX3000',8,1),
 ('EVM5000',3,1),('EVM5000',11,1),('EVM5000',12,1),('EVM5000',5,1),('EVM5000',6,2),('EVM5000',7,2),('EVM5000',8,1),('EVM5000',10,1);
 
 INSERT INTO vehicle (vin, model_code, plant_id, mfg_date, color, status, dealer_id, customer_id, sale_date, sale_price) VALUES
-('MAT447000A1000001','XSP1660',1,'2026-06-15','Racing Red','Sold',1,1,'2026-07-02',125000.00),
-('MAT447000A1000002','XSP1660',1,'2026-06-15','Matte Black','Sold',1,6,'2026-07-10',125000.00),
-('MAT447000A1000003','XSP1660',1,'2026-06-18','Racing Red','At-Dealer',1,NULL,NULL,NULL),
+('MAT447000A1000001','XSP160',1,'2026-06-15','Racing Red','Sold',1,1,'2026-07-02',125000.00),
+('MAT447000A1000002','XSP160',1,'2026-06-15','Matte Black','Sold',1,6,'2026-07-10',125000.00),
+('MAT447000A1000003','XSP160',1,'2026-06-18','Racing Red','At-Dealer',1,NULL,NULL,NULL),
 ('MAT447000B2000001','ZMR2100',2,'2026-06-25','Pearl White','Sold',3,3,'2026-07-18',148500.00),
 ('MAT447000B2000002','ZMR2100',2,'2026-06-25','Pearl White','At-Dealer',3,NULL,NULL,NULL),
 ('MAT447000C3000001','SCT1100',3,'2026-07-01','Cyan Blue','Sold',5,5,'2026-07-20',87999.00),
@@ -367,16 +424,20 @@ INSERT INTO vehicle (vin, model_code, plant_id, mfg_date, color, status, dealer_
 ('MAT447000E5000002','EVM5000',4,'2026-07-16','Stealth Black','In-Production',NULL,NULL,NULL,NULL);
 
 INSERT INTO vehicle_component (vin, component_id, batch_no, install_date, serial_no) VALUES
+('MAT447000A1000001',6,'TYR-90B221','2026-06-15',NULL),
+('MAT447000A1000001',6,'TYR-90B221','2026-06-15',NULL), -- second physical tyre
 ('MAT447000A1000001',1,'ENG160-B001','2026-06-15','ENG160-000781'),
 ('MAT447000A1000001',4,'ECU-B552','2026-06-15','ECU-000781'),
 ('MAT447000A1000001',5,'BRK-D776','2026-06-15',NULL),
+('MAT447000A1000001',8,'LAMP-L331','2026-06-15',NULL),
 ('MAT447000A1000002',1,'ENG160-B001','2026-06-15','ENG160-000782'),
 ('MAT447000A1000002',4,'ECU-B552','2026-06-15','ECU-000782'),
 ('MAT447000A1000003',1,'ENG160-B001','2026-06-18','ENG160-000783'),
 ('MAT447000A1000003',4,'ECU-B552','2026-06-18','ECU-000783'),
 ('MAT447000B2000001',2,'ENG210-B001','2026-06-25','ENG210-000201'),
 ('MAT447000B2000001',4,'ECU-B552','2026-06-25','ECU-000201'),
-('MAT447000C3000001',1,'ENG160-B001','2026-07-01','ENG160-000904'),
+('MAT447000B2000001',9,'CLU-C441','2026-06-25',NULL),
+('MAT447000C3000001',13,'ENG110-B001','2026-07-01','ENG110-000904'),
 ('MAT447000D4000001',3,'BAT3K-A117','2026-07-10','BAT-117-000451'),
 ('MAT447000D4000001',11,'CTL-M900','2026-07-10','CTL-000451'),
 ('MAT447000D4000002',3,'BAT3K-A117','2026-07-12','BAT-117-000452'),
@@ -388,13 +449,13 @@ INSERT INTO vehicle_component (vin, component_id, batch_no, install_date, serial
 INSERT INTO plant_inventory (plant_id, component_id, qty_on_hand, reorder_level) VALUES
 (1,1,450,100),(1,4,800,150),(1,5,1200,200),(1,6,3000,500),(1,7,2600,400),(1,8,900,150),
 (2,2,210,80),(2,4,600,120),(2,9,700,100),(2,10,450,90),
-(3,1,320,100),(3,5,950,200),(3,6,2400,400),
-(4,3,180,60),(4,11,220,50),(4,12,150,40),(4,5,400,100);
+(3,13,320,100),(3,5,950,200),(3,6,2400,400),
+(4,3,35,60),(4,11,220,50),(4,12,150,40),(4,5,400,100);
 
 INSERT INTO dealer_inventory (dealer_id, component_id, qty_on_hand, reorder_level) VALUES
 (1,5,60,20),(1,6,140,40),(1,8,80,25),(1,9,35,10),
 (3,6,90,30),(3,7,75,25),
-(4,3,12,5),(4,11,10,4),
+(4,3,2,5),(4,11,10,4),
 (5,6,110,30),(5,8,70,20);
 
 INSERT INTO service_record (vin, emp_id, service_date, service_type, odometer_km, cost, remarks) VALUES
@@ -411,21 +472,20 @@ INSERT INTO warranty (vin, warranty_type, start_date, end_date) VALUES
 ('MAT447000B2000001','Extended','2026-07-18','2032-07-18'),
 ('MAT447000C3000001','Standard','2026-07-20','2029-07-20'),
 ('MAT447000D4000001','Standard','2026-08-01','2029-08-01'),
-('MAT447000D4000001','Extended','2026-08-01','2031-08-01'),
-('MAT447000D4000002','Standard','2026-07-12','2029-07-12');
+('MAT447000D4000001','Extended','2026-08-01','2031-08-01');
 
 INSERT INTO warranty_claim (warranty_id, claim_date, defect_description, status, claim_amount, resolution) VALUES
 (1,'2026-09-25','Headlamp flickering at low RPM','Resolved',1600.00,'Headlamp replaced free of cost'),
 (3,'2026-09-18','Clutch slippage above 6000 RPM','Approved',3200.00,'Clutch assembly replacement scheduled'),
 (6,'2026-09-08','Battery range dropped to 70 km per charge','Resolved',26000.00,'Battery pack BAT3K-A117 replaced under recall'),
 (6,'2026-10-02','Controller error code E-11','Open',8200.00,NULL),
-(8,'2026-09-30','Rear brake noise','Rejected',0.00,'Wear-and-tear item, not a manufacturing defect');
+(5,'2026-09-30','Rear brake noise','Rejected',0.00,'Wear-and-tear item, not a manufacturing defect');
 
 -- ============================================================================
 -- SAMPLE QUERIES demonstrating the case-study problems are solved
 -- ============================================================================
--- (a) Defect recall: all VINs that received a given component batch
-SELECT vc.vin, vc.component_id, vc.batch_no, vc.serial_no
+-- (a) Defect recall: one row per affected VIN, even if two parts share a batch
+SELECT DISTINCT vc.vin
 FROM vehicle_component vc
 WHERE vc.batch_no = 'BAT3K-A117';
 
@@ -441,7 +501,7 @@ ORDER BY material_cost DESC;
 SELECT s.supplier_id, s.supplier_name,
        COUNT(*) AS total_orders,
        SUM(CASE WHEN so.delivery_date IS NOT NULL
-                 AND DATEDIFF(so.delivery_date, so.order_date) <= 10
+                 AND DATEDIFF(so.delivery_date, so.order_date) <= so.agreed_lead_time_days
                 THEN 1 ELSE 0 END) AS on_time_orders
 FROM supplier s
 JOIN supply_order so ON so.supplier_id = s.supplier_id
@@ -471,10 +531,3 @@ JOIN dealer d   ON d.dealer_id   = v.dealer_id
 JOIN vehicle_model m ON m.model_code = v.model_code
 WHERE v.status = 'Sold'
 ORDER BY v.sale_date;
-
-
-
-
-
-
-
