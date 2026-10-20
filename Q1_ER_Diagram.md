@@ -18,7 +18,7 @@ Problems the design must solve:
 
 ## 2. Entities and Attributes
 
-There are **18 relations (tables)**: 13 core entities and five associative entities. A relation is a table; a relationship is a link between entities. These counts are different. The SQL defines **24 foreign-key relationships**, all listed in Section 3 and shown in the diagram.
+There are **18 relations (tables)**: 13 core entities and five associative entities. A relation is a table; a relationship is a link between entities. These counts are different. The SQL defines **24 foreign-key relationships**, all listed in Section 3 and shown in the detailed crow's-foot source.
 
 | # | Entity / relation | Type | Primary key | Other attributes |
 |---|---|---|---|---|
@@ -80,17 +80,17 @@ The direct SUPPLIER → SUPPLY_ORDER and COMPONENT → SUPPLY_ORDER constraints 
 
 ## 4. E-R Diagram (Chen notation)
 
-The diagram shows all **18 distinct entities and 24 numbered relationships** in four connected domain views. Repeated entity names across views refer to the same table, not extra entities. Relationship numbers correspond exactly to Section 3.
+The image below is the original supplied `chen_er_diagram.png`, preserved without modification.
 
-Rectangles denote entities, ovals denote primary-key attributes, diamonds denote relationships and underlined attributes denote keys. Double lines show mandatory child participation. Labels `(0,N)`, `(1,1)` and `(0,1)` describe the participation of the adjacent entity. Only keys are drawn as ovals to keep the diagram readable; Section 2 lists every attribute.
+Rectangles denote entities, ovals denote attributes, diamonds denote relationships and underlined attributes denote keys. Double lines indicate total participation; the 1, M and N labels describe cardinality.
 
-![Chen ER diagram with 18 entities and 24 relationships](chen_er_diagram.png)
+![Original Chen ER diagram](chen_er_diagram.png)
 
 [Open the full-resolution ER diagram](chen_er_diagram.png)
 
-All five associative entities are explicit rectangles, including VEHICLE_COMPONENT and its physical-part key `fitment_id`. Every foreign-key constraint in Q3 has a corresponding diamond.
+This conceptual diagram groups associations such as bill of materials, inventory and component fitment into many-to-many relationships. Their relational implementation uses associative tables. Section 2 and Q2 list all 18 tables; Section 3 and the detailed source below enumerate the 24 SQL foreign-key constraints. The conceptual image does not use one numbered diamond per foreign-key constraint.
 
-### Equivalent crow's-foot source
+### Detailed crow's-foot source
 
 > Paste the block below into any Mermaid renderer (mermaid.live, VS Code Markdown preview) to see the diagram.
 

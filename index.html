@@ -174,7 +174,7 @@ dealers, customers, sales, service and warranty — replacing today&#39;s separa
 <li>Production cost calculation (component cost via Bill of Materials)</li>
 </ul>
 <h3>2. Entities and Attributes</h3>
-<p>There are <strong>18 relations (tables)</strong>: 13 core entities and five associative entities. A relation is a table; a relationship is a link between entities. These counts are different. The SQL defines <strong>24 foreign-key relationships</strong>, all listed in Section 3 and shown in the diagram.</p>
+<p>There are <strong>18 relations (tables)</strong>: 13 core entities and five associative entities. A relation is a table; a relationship is a link between entities. These counts are different. The SQL defines <strong>24 foreign-key relationships</strong>, all listed in Section 3 and shown in the detailed crow&#39;s-foot source.</p>
 <table>
 <thead>
 <tr>
@@ -497,12 +497,12 @@ dealers, customers, sales, service and warranty — replacing today&#39;s separa
 </tbody></table>
 <p>The direct SUPPLIER → SUPPLY_ORDER and COMPONENT → SUPPLY_ORDER constraints coexist with the composite SUPPLIES → SUPPLY_ORDER constraint. The latter additionally verifies that the supplier/component pair is approved. BATCH → VEHICLE_COMPONENT uses <code>(batch_no, component_id)</code> so a fitted part cannot refer to a batch of a different component.</p>
 <h3>4. E-R Diagram (Chen notation)</h3>
-<p>The diagram shows all <strong>18 distinct entities and 24 numbered relationships</strong> in four connected domain views. Repeated entity names across views refer to the same table, not extra entities. Relationship numbers correspond exactly to Section 3.</p>
-<p>Rectangles denote entities, ovals denote primary-key attributes, diamonds denote relationships and underlined attributes denote keys. Double lines show mandatory child participation. Labels <code>(0,N)</code>, <code>(1,1)</code> and <code>(0,1)</code> describe the participation of the adjacent entity. Only keys are drawn as ovals to keep the diagram readable; Section 2 lists every attribute.</p>
-<p><a href="chen_er_diagram.png"><img src="chen_er_diagram.png" alt="Chen ER diagram with 18 entities and 24 relationships" style="display:block;width:100%;height:auto"></a></p>
+<p>The image below is the original supplied <code>chen_er_diagram.png</code>, preserved without modification.</p>
+<p>Rectangles denote entities, ovals denote attributes, diamonds denote relationships and underlined attributes denote keys. Double lines indicate total participation; the 1, M and N labels describe cardinality.</p>
+<p><a href="chen_er_diagram.png"><img src="chen_er_diagram.png" alt="Original Chen ER diagram" style="display:block;width:100%;height:auto"></a></p>
 <p><a href="chen_er_diagram.png">Open the full-resolution ER diagram</a></p>
-<p>All five associative entities are explicit rectangles, including VEHICLE_COMPONENT and its physical-part key <code>fitment_id</code>. Every foreign-key constraint in Q3 has a corresponding diamond.</p>
-<h4>Equivalent crow&#39;s-foot source</h4>
+<p>This conceptual diagram groups associations such as bill of materials, inventory and component fitment into many-to-many relationships. Their relational implementation uses associative tables. Section 2 and Q2 list all 18 tables; Section 3 and the detailed source below enumerate the 24 SQL foreign-key constraints. The conceptual image does not use one numbered diamond per foreign-key constraint.</p>
+<h4>Detailed crow&#39;s-foot source</h4>
 <blockquote>
 <p>Paste the block below into any Mermaid renderer (mermaid.live, VS Code Markdown preview) to see the diagram.</p>
 </blockquote>
@@ -801,7 +801,7 @@ CUSTOMER       -- Purchases      -- VEHICLE          (1:N; optional customer)
 <h3>Key/Referential-Integrity Summary</h3>
 <ul>
 <li><strong>Total tables:</strong> 18. The five M:N relationships become junction tables: SUPPLIES, MODEL_COMPONENT, VEHICLE_COMPONENT, PLANT_INVENTORY, and DEALER_INVENTORY.</li>
-<li><strong>Implemented relationships:</strong> 24 foreign-key constraints. Composite foreign keys count once each. Q1 Section 3 lists all 24 links and numbers them to match the Chen diagram; 18 is the table count, not the relationship count.</li>
+<li><strong>Implemented relationships:</strong> 24 foreign-key constraints. Composite foreign keys count once each. Q1 Section 3 lists all 24 links, and the detailed crow&#39;s-foot source uses the same numbers; 18 is the table count, not the relationship count.</li>
 <li><strong>Primary keys:</strong> 18; <strong>Composite PKs:</strong> SUPPLIES, MODEL_COMPONENT, PLANT_INVENTORY, DEALER_INVENTORY. BATCH uses <code>batch_no</code>; VEHICLE_COMPONENT uses <code>fitment_id</code>.</li>
 <li><strong>Foreign keys:</strong> actions match <code>Q3_two_wheeler_db.sql</code>. History that must be kept (supply orders, batches, vehicles, dealers, and the component/batch side of fitment) uses <code>ON DELETE RESTRICT</code>. Rows that belong to a parent (supplies, inventories, service, warranty, claims, and the vehicle side of fitment) use <code>ON DELETE CASCADE</code>. <code>service_record.emp_id</code> uses <code>ON DELETE SET NULL</code>. A supply order and a batch must reference a real SUPPLIES pair. A fitted part must reference a batch of that same component.</li>
 <li><strong>UNIQUE constraints:</strong> CUSTOMER(phone), CUSTOMER(email), DEALER(phone), VEHICLE_COMPONENT(component_id, serial_no), BATCH(batch_no, component_id). Contact uniqueness assumes customers/dealers use distinct contact identifiers; it does not prove that records with different contacts represent different people.</li>
