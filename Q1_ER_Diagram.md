@@ -18,55 +18,77 @@ Problems the design must solve:
 
 ## 2. Entities and Attributes
 
-| # | Entity | Type | Key Attributes | Other Attributes |
-|---|--------|------|----------------|------------------|
-| 1 | **VEHICLE_MODEL** | Strong | `model_code` (PK) — e.g. `XSP160` | model_name (e.g. X-Sport 160), vehicle_type (Motorcycle/Scooter/E-Scooter/E-Motorcycle), engine_capacity_cc (NULL for electric), fuel_type (Petrol/Electric), transmission, seating_capacity, ex_showroom_price |
-| 2 | **COMPONENT** | Strong | `component_id` (PK) | component_name (Engine, Battery, Brake assembly, Tyre, Wheel, Headlamp, ECU, Clutch Assembly, Suspension...), category, unit_cost, is_critical |
-| 3 | **SUPPLIER** | Strong | `supplier_id` (PK) | supplier_name, address, supplier_type (OEM/Aftermarket), rating |
-| 4 | **PLANT** | Strong | `plant_id` (PK) | plant_name, location, annual_capacity |
-| 5 | **EMPLOYEE** | Strong | `emp_id` (PK) | emp_name, designation, salary, hire_date |
-| 6 | **DEALER** | Strong | `dealer_id` (PK) | dealer_name, address, city, phone (phone UNIQUE — rejects repeated phone values) |
-| 7 | **CUSTOMER** | Strong | `customer_id` (PK) | customer_name, phone (UNIQUE), email (UNIQUE), address — UNIQUE constraints reject repeated contact values |
-| 8 | **VEHICLE** | Strong | `vin` (chassis no, PK) | model_code (FK), plant_id (FK), mfg_date, color, status (In-Production/At-Plant/At-Dealer/Sold), dealer_id (nullable FK), customer_id (nullable FK), sale_date, sale_price |
-| 9 | **BATCH** (of a component) | Strong; existence-dependent | `batch_no` (PK; globally unique internal lot code) | supplier_id + component_id (composite FK to SUPPLIES), batch_qty, batch_date |
-| 10 | **SERVICE_RECORD** | Strong; existence-dependent | `service_id` (PK) | vin (FK), emp_id (nullable FK), service_date, service_type, odometer_km, cost, remarks |
-| 11 | **WARRANTY** | Strong | `warranty_id` (PK) | vin (FK), warranty_type (Standard/Extended), start_date, end_date |
-| 12 | **WARRANTY_CLAIM** | Strong | `claim_id` (PK) | warranty_id (FK), claim_date, defect_description, status (Open/Approved/Rejected/Resolved), claim_amount, resolution |
-| 13 | **SUPPLY_ORDER** | Strong | `po_id` (PK) | supplier_id, component_id, order_date, qty_ordered, unit_price, agreed_lead_time_days, delivery_date |
+There are **18 relations (tables)**: 13 core entities and five associative entities. A relation is a table; a relationship is a link between entities. These counts are different. The SQL defines **24 foreign-key relationships**, all listed in Section 3 and shown in the diagram.
 
-Associative entities are **SUPPLIES**, **MODEL_COMPONENT**, **VEHICLE_COMPONENT**, **PLANT_INVENTORY**, and **DEALER_INVENTORY**. Their full attributes appear in the diagram. VEHICLE_COMPONENT has its own `fitment_id`; each row represents one physical part in the original build, so a vehicle can contain two tyres of the same component type.
+| # | Entity / relation | Type | Primary key | Other attributes |
+|---|---|---|---|---|
+| 1 | **PLANT** | Strong | `plant_id` | `plant_name`, `location`, `annual_capacity` |
+| 2 | **VEHICLE_MODEL** | Strong | `model_code` | `model_name`, `vehicle_type`, `engine_capacity_cc`, `fuel_type`, `transmission`, `seating_capacity`, `ex_showroom_price` |
+| 3 | **COMPONENT** | Strong | `component_id` | `component_name`, `category`, `unit_cost`, `is_critical` |
+| 4 | **SUPPLIER** | Strong | `supplier_id` | `supplier_name`, `address`, `supplier_type`, `rating` |
+| 5 | **EMPLOYEE** | Strong | `emp_id` | `emp_name`, `designation`, `salary`, `hire_date`, `plant_id` |
+| 6 | **DEALER** | Strong | `dealer_id` | `dealer_name`, `address`, `city`, `phone` |
+| 7 | **CUSTOMER** | Strong | `customer_id` | `customer_name`, `phone`, `email`, `address` |
+| 8 | **SUPPLIES** | Associative entity | `supplier_id`, `component_id` | `unit_price`, `lead_time_days`, `quality_rating` |
+| 9 | **SUPPLY_ORDER** | Strong | `po_id` | `supplier_id`, `component_id`, `qty_ordered`, `unit_price`, `order_date`, `agreed_lead_time_days`, `delivery_date` |
+| 10 | **BATCH** | Strong; existence-dependent | `batch_no` | `supplier_id`, `component_id`, `batch_qty`, `batch_date` |
+| 11 | **MODEL_COMPONENT** | Associative entity | `model_code`, `component_id` | `qty_per_vehicle` |
+| 12 | **VEHICLE** | Strong | `vin` | `model_code`, `plant_id`, `mfg_date`, `color`, `status`, `dealer_id`, `customer_id`, `sale_date`, `sale_price` |
+| 13 | **VEHICLE_COMPONENT** | Associative entity | `fitment_id` | `vin`, `component_id`, `batch_no`, `install_date`, `serial_no` |
+| 14 | **PLANT_INVENTORY** | Associative entity | `plant_id`, `component_id` | `qty_on_hand`, `reorder_level` |
+| 15 | **DEALER_INVENTORY** | Associative entity | `dealer_id`, `component_id` | `qty_on_hand`, `reorder_level` |
+| 16 | **SERVICE_RECORD** | Strong; existence-dependent | `service_id` | `vin`, `emp_id`, `service_date`, `service_type`, `odometer_km`, `cost`, `remarks` |
+| 17 | **WARRANTY** | Strong | `warranty_id` | `vin`, `warranty_type`, `start_date`, `end_date` |
+| 18 | **WARRANTY_CLAIM** | Strong | `claim_id` | `warranty_id`, `claim_date`, `defect_description`, `status`, `claim_amount`, `resolution` |
 
-## 3. Relationships (with cardinality and participation)
+VEHICLE_COMPONENT has its own `fitment_id`: two tyres of the same component type and batch are two separate physical fitments. Q2 specifies domains, nullability, unique constraints and composite foreign keys.
 
-| # | Relationship | Entities | Cardinality | Participation | Descriptive Attributes |
-|---|--------------|----------|-------------|---------------|------------------------|
-| 1 | **Produces** | PLANT — VEHICLE | 1 : N | PLANT partial, VEHICLE total | mfg_date on VEHICLE |
-| 2 | **Is-Model-Of** | VEHICLE_MODEL — VEHICLE | 1 : N | MODEL partial, VEHICLE total | — |
-| 3 | **Supplies** | SUPPLIER — COMPONENT | **M : N** | both partial (catalogue entries may precede sourcing) | current unit_price, lead_time_days, quality_rating |
-| 4 | **Supplies-Batch** | SUPPLIES — BATCH | 1 : N, non-identifying | total on BATCH | batch_no, batch_qty, batch_date |
-| 5 | **Uses** (Bill of Materials / design) | VEHICLE_MODEL — COMPONENT | **M : N** | partial | qty_per_vehicle |
-| 6 | **Fitted-With** (as-built) | VEHICLE — COMPONENT (via BATCH) | **M : N**, repeated physical parts allowed | partial | fitment_id, install_date, serial_no; every fitment has one vehicle, component and matching batch |
-| 7 | **Holds-Stock** (inventory at plants) | PLANT — COMPONENT | **M : N** | partial | quantity_on_hand, reorder_level |
-| 8 | **Stocks** (inventory at dealers) | DEALER — COMPONENT | **M : N** | partial | quantity_on_hand, reorder_level |
-| 9 | **Works-At** | EMPLOYEE — PLANT | N : 1 | total on EMPLOYEE | — |
-| 10 | **Performs-Service** | EMPLOYEE — SERVICE_RECORD | 1 : N | partial on both; employee may be unknown or deleted | — |
-| 11 | **Has-Service** | VEHICLE — SERVICE_RECORD | 1 : N | total on SERVICE_RECORD | — |
-| 12 | **Covered-By** | VEHICLE — WARRANTY | 1 : N (a vehicle can have Standard + Extended) | total on WARRANTY | — |
-| 13 | **Files-Claim** | WARRANTY — WARRANTY_CLAIM | 1 : N | total on CLAIM | — |
-| 14 | **Orders-From** | SUPPLIES — SUPPLY_ORDER | 1 : N | total on SUPPLY_ORDER | qty_ordered, unit_price, order_date, agreed_lead_time_days, delivery_date |
-| 15 | **Sells** | DEALER — VEHICLE | 1 : N | partial | — |
-| 16 | **Purchases** (Sale) | CUSTOMER — VEHICLE | 1 : N | partial on both | sale_date, sale_price; recorded only when status = Sold |
+## 3. All 24 implemented relationships
 
+Each row below corresponds to one SQL FOREIGN KEY constraint. A composite foreign key counts as one relationship, not one per column. Every parent may have zero or many children, so its participation is `(0,N)`. The child participates in exactly one parent relationship `(1,1)` when mandatory, or zero or one `(0,1)` when nullable. All links below are 1:N from parent to child.
+
+The earlier 16-item list grouped business concepts such as Supplies, Uses and Fitted-With. Expanding their associative entities and listing the direct supplier/component foreign keys on SUPPLY_ORDER gives these 24 implemented links. It does not add tables or change SQL behavior.
+
+| # | Relationship | Parent → child | Child foreign key → parent key | Child participation |
+|---|---|---|---|---|
+| 1 | Employs | PLANT → EMPLOYEE | (plant_id) → (plant_id) | (1,1), total |
+| 2 | Is model of | VEHICLE_MODEL → VEHICLE | (model_code) → (model_code) | (1,1), total |
+| 3 | Produces | PLANT → VEHICLE | (plant_id) → (plant_id) | (1,1), total |
+| 4 | Stocks or sells | DEALER → VEHICLE | (dealer_id) → (dealer_id) | (0,1), optional |
+| 5 | Purchases | CUSTOMER → VEHICLE | (customer_id) → (customer_id) | (0,1), optional |
+| 6 | Offers | SUPPLIER → SUPPLIES | (supplier_id) → (supplier_id) | (1,1), total |
+| 7 | Sourced as | COMPONENT → SUPPLIES | (component_id) → (component_id) | (1,1), total |
+| 8 | Receives order | SUPPLIER → SUPPLY_ORDER | (supplier_id) → (supplier_id) | (1,1), total |
+| 9 | Ordered in | COMPONENT → SUPPLY_ORDER | (component_id) → (component_id) | (1,1), total |
+| 10 | Orders from | SUPPLIES → SUPPLY_ORDER | (supplier_id, component_id) → (supplier_id, component_id) | (1,1), total |
+| 11 | Supplies batch | SUPPLIES → BATCH | (supplier_id, component_id) → (supplier_id, component_id) | (1,1), total |
+| 12 | Has BOM row | VEHICLE_MODEL → MODEL_COMPONENT | (model_code) → (model_code) | (1,1), total |
+| 13 | BOM part | COMPONENT → MODEL_COMPONENT | (component_id) → (component_id) | (1,1), total |
+| 14 | Has fitment | VEHICLE → VEHICLE_COMPONENT | (vin) → (vin) | (1,1), total |
+| 15 | Fitment type | COMPONENT → VEHICLE_COMPONENT | (component_id) → (component_id) | (1,1), total |
+| 16 | Fitment batch | BATCH → VEHICLE_COMPONENT | (batch_no, component_id) → (batch_no, component_id) | (1,1), total |
+| 17 | Holds stock | PLANT → PLANT_INVENTORY | (plant_id) → (plant_id) | (1,1), total |
+| 18 | Plant stock item | COMPONENT → PLANT_INVENTORY | (component_id) → (component_id) | (1,1), total |
+| 19 | Stocks | DEALER → DEALER_INVENTORY | (dealer_id) → (dealer_id) | (1,1), total |
+| 20 | Dealer stock item | COMPONENT → DEALER_INVENTORY | (component_id) → (component_id) | (1,1), total |
+| 21 | Has service | VEHICLE → SERVICE_RECORD | (vin) → (vin) | (1,1), total |
+| 22 | Performs service | EMPLOYEE → SERVICE_RECORD | (emp_id) → (emp_id) | (0,1), optional |
+| 23 | Covered by | VEHICLE → WARRANTY | (vin) → (vin) | (1,1), total |
+| 24 | Has claim | WARRANTY → WARRANTY_CLAIM | (warranty_id) → (warranty_id) | (1,1), total |
+
+The direct SUPPLIER → SUPPLY_ORDER and COMPONENT → SUPPLY_ORDER constraints coexist with the composite SUPPLIES → SUPPLY_ORDER constraint. The latter additionally verifies that the supplier/component pair is approved. BATCH → VEHICLE_COMPONENT uses `(batch_no, component_id)` so a fitted part cannot refer to a batch of a different component.
 
 ## 4. E-R Diagram (Chen notation)
 
-The drawing uses rectangles for entities, ovals for attributes, diamonds for relationships, underlined keys and double lines for total participation. Cardinality labels use 1, M and N for one-to-many and many-to-many relationships. The relationship table above specifies optional participation.
+The diagram shows all **18 distinct entities and 24 numbered relationships** in four connected domain views. Repeated entity names across views refer to the same table, not extra entities. Relationship numbers correspond exactly to Section 3.
 
-![Chen ER diagram](chen_er_diagram.png)
+Rectangles denote entities, ovals denote primary-key attributes, diamonds denote relationships and underlined attributes denote keys. Double lines show mandatory child participation. Labels `(0,N)`, `(1,1)` and `(0,1)` describe the participation of the adjacent entity. Only keys are drawn as ovals to keep the diagram readable; Section 2 lists every attribute.
 
-[Download the high-resolution ER diagram](chen_er_diagram.png)
+![Chen ER diagram with 18 entities and 24 relationships](chen_er_diagram.png)
 
-The image is a conceptual overview. In the relational implementation, Fitted-With becomes VEHICLE_COMPONENT with a separate `fitment_id` for every physical part, including repeated parts from the same batch. The schema in Q2 and the equivalent source below specify its individual vehicle, component and batch relationships.
+[Open the full-resolution ER diagram](chen_er_diagram.png)
+
+All five associative entities are explicit rectangles, including VEHICLE_COMPONENT and its physical-part key `fitment_id`. Every foreign-key constraint in Q3 has a corresponding diamond.
 
 ### Equivalent crow's-foot source
 
@@ -74,30 +96,30 @@ The image is a conceptual overview. In the relational implementation, Fitted-Wit
 
 ```mermaid
 erDiagram
-    PLANT ||..o{ VEHICLE : "Produces"
-    VEHICLE_MODEL ||..o{ VEHICLE : "Is-Model-Of"
-    SUPPLIER ||--o{ SUPPLIES : "Offers"
-    COMPONENT ||--o{ SUPPLIES : "Sourced-As"
-    SUPPLIES ||..o{ SUPPLY_ORDER : "Orders-From"
-    SUPPLIER ||..o{ SUPPLY_ORDER : "Receives"
-    COMPONENT ||..o{ SUPPLY_ORDER : "Ordered-In"
-    SUPPLIES ||..o{ BATCH : "Supplies-Batch"
-    VEHICLE_MODEL ||--o{ MODEL_COMPONENT : "Uses-BOM"
-    COMPONENT ||--o{ MODEL_COMPONENT : ""
-    VEHICLE ||..o{ VEHICLE_COMPONENT : "Fitted-With"
-    COMPONENT ||..o{ VEHICLE_COMPONENT : "Part-Type"
-    BATCH ||..o{ VEHICLE_COMPONENT : "From-Batch"
-    PLANT ||--o{ PLANT_INVENTORY : "Holds-Stock"
-    COMPONENT ||--o{ PLANT_INVENTORY : ""
-    DEALER ||--o{ DEALER_INVENTORY : "Stocks"
-    COMPONENT ||--o{ DEALER_INVENTORY : ""
-    EMPLOYEE }o..|| PLANT : "Works-At"
-    EMPLOYEE |o..o{ SERVICE_RECORD : "Performs-Service"
-    VEHICLE ||..o{ SERVICE_RECORD : "Has-Service"
-    VEHICLE ||..o{ WARRANTY : "Covered-By"
-    WARRANTY ||..o{ WARRANTY_CLAIM : "Files-Claim"
-    DEALER |o..o{ VEHICLE : "Stocks-or-Sells"
-    CUSTOMER |o..o{ VEHICLE : "Purchases"
+    PLANT ||..o{ EMPLOYEE : "1 Employs"
+    VEHICLE_MODEL ||..o{ VEHICLE : "2 Is model of"
+    PLANT ||..o{ VEHICLE : "3 Produces"
+    DEALER |o..o{ VEHICLE : "4 Stocks or sells"
+    CUSTOMER |o..o{ VEHICLE : "5 Purchases"
+    SUPPLIER ||--o{ SUPPLIES : "6 Offers"
+    COMPONENT ||--o{ SUPPLIES : "7 Sourced as"
+    SUPPLIER ||..o{ SUPPLY_ORDER : "8 Receives order"
+    COMPONENT ||..o{ SUPPLY_ORDER : "9 Ordered in"
+    SUPPLIES ||..o{ SUPPLY_ORDER : "10 Orders from"
+    SUPPLIES ||..o{ BATCH : "11 Supplies batch"
+    VEHICLE_MODEL ||--o{ MODEL_COMPONENT : "12 Has BOM row"
+    COMPONENT ||--o{ MODEL_COMPONENT : "13 BOM part"
+    VEHICLE ||..o{ VEHICLE_COMPONENT : "14 Has fitment"
+    COMPONENT ||..o{ VEHICLE_COMPONENT : "15 Fitment type"
+    BATCH ||..o{ VEHICLE_COMPONENT : "16 Fitment batch"
+    PLANT ||--o{ PLANT_INVENTORY : "17 Holds stock"
+    COMPONENT ||--o{ PLANT_INVENTORY : "18 Plant stock item"
+    DEALER ||--o{ DEALER_INVENTORY : "19 Stocks"
+    COMPONENT ||--o{ DEALER_INVENTORY : "20 Dealer stock item"
+    VEHICLE ||..o{ SERVICE_RECORD : "21 Has service"
+    EMPLOYEE |o..o{ SERVICE_RECORD : "22 Performs service"
+    VEHICLE ||..o{ WARRANTY : "23 Covered by"
+    WARRANTY ||..o{ WARRANTY_CLAIM : "24 Has claim"
 
     PLANT {
         int plant_id PK

@@ -67,6 +67,7 @@
 ## Key/Referential-Integrity Summary
 
 - **Total tables:** 18. The five M:N relationships become junction tables: SUPPLIES, MODEL_COMPONENT, VEHICLE_COMPONENT, PLANT_INVENTORY, and DEALER_INVENTORY.
+- **Implemented relationships:** 24 foreign-key constraints. Composite foreign keys count once each. Q1 Section 3 lists all 24 links and numbers them to match the Chen diagram; 18 is the table count, not the relationship count.
 - **Primary keys:** 18; **Composite PKs:** SUPPLIES, MODEL_COMPONENT, PLANT_INVENTORY, DEALER_INVENTORY. BATCH uses `batch_no`; VEHICLE_COMPONENT uses `fitment_id`.
 - **Foreign keys:** actions match `Q3_two_wheeler_db.sql`. History that must be kept (supply orders, batches, vehicles, dealers, and the component/batch side of fitment) uses `ON DELETE RESTRICT`. Rows that belong to a parent (supplies, inventories, service, warranty, claims, and the vehicle side of fitment) use `ON DELETE CASCADE`. `service_record.emp_id` uses `ON DELETE SET NULL`. A supply order and a batch must reference a real SUPPLIES pair. A fitted part must reference a batch of that same component.
 - **UNIQUE constraints:** CUSTOMER(phone), CUSTOMER(email), DEALER(phone), VEHICLE_COMPONENT(component_id, serial_no), BATCH(batch_no, component_id). Contact uniqueness assumes customers/dealers use distinct contact identifiers; it does not prove that records with different contacts represent different people.
