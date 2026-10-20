@@ -58,7 +58,17 @@ Associative entities are **SUPPLIES**, **MODEL_COMPONENT**, **VEHICLE_COMPONENT*
 | 16 | **Purchases** (Sale) | CUSTOMER — VEHICLE | 1 : N | partial on both | sale_date, sale_price; recorded only when status = Sold |
 
 
-## 4. E-R Diagram (rendered as Mermaid)
+## 4. E-R Diagram (Chen notation)
+
+The drawing uses rectangles for entities, ovals for attributes, diamonds for relationships, underlined keys and double lines for total participation. Cardinality labels use 1, M and N for one-to-many and many-to-many relationships. The relationship table above specifies optional participation.
+
+![Chen ER diagram](chen_er_diagram.png)
+
+[Download the high-resolution ER diagram](chen_er_diagram.png)
+
+The image is a conceptual overview. In the relational implementation, Fitted-With becomes VEHICLE_COMPONENT with a separate `fitment_id` for every physical part, including repeated parts from the same batch. The schema in Q2 and the equivalent source below specify its individual vehicle, component and batch relationships.
+
+### Equivalent crow's-foot source
 
 > Paste the block below into any Mermaid renderer (mermaid.live, VS Code Markdown preview) to see the diagram.
 

@@ -416,7 +416,12 @@ dealers, customers, sales, service and warranty — replacing today&#39;s separa
 <td>sale_date, sale_price; recorded only when status = Sold</td>
 </tr>
 </tbody></table>
-<h3>4. E-R Diagram (rendered as Mermaid)</h3>
+<h3>4. E-R Diagram (Chen notation)</h3>
+<p>Rectangles represent entities, ovals represent attributes, and diamonds represent relationships. Keys are underlined. Double lines show total participation; 1, M and N label one-to-many and many-to-many relationships. The relationship table above specifies optional participation.</p>
+<a href="chen_er_diagram.png"><img src="chen_er_diagram.png" alt="Chen ER diagram of the two-wheeler manufacturing database" style="display:block;width:100%;height:auto"></a>
+<p><a href="chen_er_diagram.png">Download high-resolution ER diagram</a></p>
+<p>The image is a conceptual overview. In the relational implementation, Fitted-With becomes VEHICLE_COMPONENT with a separate <code>fitment_id</code> for every physical part, including repeated parts from the same batch. Q2 and the equivalent source below specify its individual vehicle, component and batch relationships.</p>
+<h4>Equivalent crow's-foot source</h4>
 <blockquote>
 <p>Paste the block below into any Mermaid renderer (mermaid.live, VS Code Markdown preview) to see the diagram.</p>
 </blockquote>
